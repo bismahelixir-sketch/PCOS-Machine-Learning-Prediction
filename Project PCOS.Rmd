@@ -1,0 +1,218 @@
+---
+title: "Project Data101"
+output: pdf_document
+date: "2025-04-11"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r}
+install.packages("rsample")
+install.packages("naivebayes")
+install.packages("klaR")
+
+library(rpart)
+library(caret)
+library(klaR)
+library(naivebayes)
+library(rsample)
+library(ggplot2)
+library(rpart)
+library(rpart.plot)
+
+# loading dataset
+df <- read.csv("pcos_dataset.csv")
+View(df)
+head(df)
+tail(df)
+set.seed(1234)
+
+# Coverting categorical columns to factor
+df$PCOS_Diagnosis <- as.factor(df$PCOS_Diagnosis)
+df$Menstrual_Irregularity <- as.factor(df$Menstrual_Irregularity)
+
+summary(df)
+str(df)
+
+# ─────────────────────────────────────────────────────────────
+# checking df using histogram, boxplot, bar graph
+# i used ggplot since they have a more precise view than the normal ones
+# ─────────────────────────────────────────────────────────────
+
+# histogram
+ggplot(df, aes(x = BMI)) + geom_histogram(bins = 15,fill = "pink", color = "purple") + labs(title = "BMI Distribution", x = "BMI", y = "Numebr of People")
+
+ggplot(df, aes( x= Testosterone_Level.ng.dL.)) + geom_histogram(bins = 30, fill = "lightblue", color = "black") + labs(title = "Testosterone Level Distribution", x = "Testosterone", y = "Numebr of People")
+
+ggplot(df, aes( x= Age)) + geom_histogram(bins = 30, fill = "beige", color = "brown") + labs(title = "Age Distribution", x = "Age", y = "Numebr of People")
+
+# bar graph
+ggplot(df, aes(x = PCOS_Diagnosis)) + geom_bar(fill = "magenta") + labs(title = "PCOS Diagnosis Count", x = "Diagnosis", y = "Number of People")
+
+ggplot(df, aes(x = PCOS_Diagnosis))+ geom_bar(position = "fill") + labs(title = "PCOS vs Menstrual Irregularity", x = "PCOS Diagnosis", y = "Proportion")
+table(df$PCOS_Diagnosis, df$Menstrual_Irregularity)
+
+# box Plot
+df$PCOS_Diagnosis <- factor(df$PCOS_Diagnosis, levels = c(0, 1), labels = c("No", "Yes"))
+ggplot(df, aes(x = PCOS_Diagnosis, y = Testosterone_Level.ng.dL.)) + geom_boxplot(fill = "yellow", color = "black") + labs(title = "Testosterone with PCOS Diagnosis", x = "PCOS Diagnosis", y = "Testosterone")
+
+ggplot(df, aes(x = PCOS_Diagnosis, y = BMI)) + geom_boxplot(fill = "lightblue", color = "darkblue") + labs(title = "BMI with PCOS Diagnosis",x = "PCOS Diagnosis",y = "BMI")
+
+ggplot(df, aes(x = PCOS_Diagnosis, y = Antral_Follicle_Count)) + geom_boxplot(fill = "lightgreen", color = "darkgreen") + labs(title = "Antral Follicle Count with PCOS Diagnosis", x = "PCOS Diagnosis",y = "Antral Follicle Count")
+
+# ─────────────────────────────────────────────────────────────
+# preparing data for naive bayes
+# ─────────────────────────────────────────────────────────────
+
+# run [df <- read.csv("pcos_dataset.csv")] before running following code otherwise PCOS_diagnosis goes NA instead of yes,no
+# 0,1 is changed to no,yes as it would break during probability-based calculation (like in Confidence Interval) 
+df$PCOS_Diagnosis <- recode(df$PCOS_Diagnosis, `0` = "no", `1` = "yes")
+df$PCOS_Diagnosis <- factor(df$PCOS_Diagnosis, levels = c("no", "yes")) 
+df$Menstrual_Irregularity <- as.factor(df$Menstrual_Irregularity)
+
+# partitioning data(df) in which 70% is trained and 30% is tested
+# inspired by homework 10
+
+set.seed(12345)
+pcos_split <- initial_split(df, prop = 0.7)
+train_df <- training(pcos_split)      # 70% for training
+test_df <- testing(pcos_split)      # 30% for testing
+
+train_df <- subset(train_df, select =-Menstrual_Irregularity)
+test_df <- subset(test_df, select = -Menstrual_Irregularity)
+# i removed Menstrual irregularity since it showed no variation. for example after the error in r studio i realised that whoever has PCOS also have menstrual irregularity so there is no variation. and it was causing naive bayes to fail
+
+
+# ─────────────────────────────────────────────────────────────
+# Naive Bayes Classification
+# ─────────────────────────────────────────────────────────────
+
+str(train_df)
+# training Naive Bayes Model
+nb_mod <- naive_bayes(PCOS_Diagnosis ~ ., data = train_df)
+
+# predict on training data
+train_pred <- predict(nb_mod, train_df)
+
+# Confusion matrix (training)
+table_train <- table(train_pred, train_df$PCOS_Diagnosis)
+print(caret::confusionMatrix(table_train, positive = c("yes")))
+
+# predict on test data
+test_pred <- predict(nb_mod, test_df)
+
+# Confusion matrix (Test)
+table_test <- table(test_pred, test_df$PCOS_Diagnosis)
+print(caret::confusionMatrix(table_test, positive = c("yes")))
+
+# ─────────────────────────────────────────────────────────────
+# Confidence Interval on Naive Bayes
+# ─────────────────────────────────────────────────────────────
+# homework 6 referenced
+S_mean <- mean(test_pred == test_df$PCOS_Diagnosis)
+
+n <- length(test_df$PCOS_Diagnosis)
+Z <- qnorm(0.975)
+SE <- sqrt(S_mean * (1 - S_mean) / n)
+MOE <- Z * SE
+
+CI_LowerBound <- S_mean - MOE
+CI_UpperBound <- S_mean + MOE
+Confidence_Interval <- c(CI_LowerBound, CI_UpperBound)
+
+desired_margin_of_error <- 0.05
+sample_size <- (Z * sqrt(S_mean * (1 - S_mean)) / desired_margin_of_error)^2
+
+cat("CI:", Confidence_Interval, "\n")
+cat("Margin of Error:", MOE, "\n")
+cat("Required Sample Size for MOE less than 5%:", sample_size, "\n")
+# ─────────────────────────────────────────────────────────────
+# Decision Tree with Cross-Validation
+# ─────────────────────────────────────────────────────────────
+# (startified pdf inspo)
+
+library(dplyr)
+
+ctrl <- trainControl(
+  method = "cv",
+  number = 5,
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary
+)
+set.seed(123)
+
+# removing Menstrual_Irregularity because it was creating zero variance problems
+df <- subset(df, select = -Menstrual_Irregularity)
+# training decision tree
+model_1 <- train(
+  PCOS_Diagnosis ~ .,
+  data = df,
+  method = "rpart",
+  trControl = ctrl,
+  tuneLength = 10,
+  metric = "ROC"
+)
+
+# Visualising the tree
+print(model_1)
+rpart.plot(model_1$finalModel, main = "Final Decision Tree") # chapter 19
+
+# predicting using decision tree
+pred <- predict(model_1, test_df)
+tree <- confusionMatrix(pred, test_df$PCOS_Diagnosis, positive = "yes")
+print(tree)
+# ─────────────────────────────────────────────────────────────
+# Confidence Interval on Decision Tree
+# ─────────────────────────────────────────────────────────────
+dt_mean <- mean(pred == test_df$PCOS_Diagnosis)
+
+dt_n <- length(test_df$PCOS_Diagnosis)
+Z <- qnorm(0.975)
+dt_SE <- sqrt(dt_mean * (1 - dt_mean) / dt_n)
+dt_MOE <- Z * dt_SE
+
+dt_CI_Lower <- dt_mean - dt_MOE
+dt_CI_Upper <- dt_mean + dt_MOE
+dt_CI <- c(dt_CI_Lower, dt_CI_Upper)
+
+dt_desired_margin <- 0.05
+dt_sample_size <- (Z * sqrt(dt_mean * (1 - dt_mean)) / dt_desired_margin)^2
+
+# Print output
+cat("CI:",dt_CI, "\n")
+cat("Margin of Error:",dt_MOE, "\n")
+cat("Required Sample Size for MOE less than 5%:", dt_sample_size, "\n")
+
+# ─────────────────────────────────────────────────────────────
+# Accuracy Comparison
+# ─────────────────────────────────────────────────────────────
+
+# Checking Accuracy
+NB_CM <- confusionMatrix(test_pred, test_df$PCOS_Diagnosis, positive = "yes")
+DT_CM <- confusionMatrix(pred, test_df$PCOS_Diagnosis)
+
+NB_accuracy <- NB_CM$overall["Accuracy"]
+DT_accuracy <- DT_CM$overall["Accuracy"]
+
+cat("Naive Bayes Accuracy:", NB_accuracy, "\n")
+cat("Decision Tree Accuracy:", DT_accuracy, "\n")
+
+Accuracies <- c(`Naive Bayes`= NB_accuracy, `Decision Tree` = DT_accuracy)
+accuracy_df <- data.frame( Model = names(Accuracies), Accuracy = as.numeric(Accuracies))
+
+# Bar Chart
+ggplot(accuracy_df, aes(x = Model, y = Accuracy, fill = Model)) +
+  geom_bar(stat = "identity", width = 0.5) +
+  labs(title = "Model Accuracy Comparison", x = "Model", y = "Accuracy") +
+  ylim(0, 1)
+
+
+
+
+
+```
+
